@@ -1,8 +1,8 @@
-# Implementation Guide: Traefik Reverse Proxy with DMC Backend
+# Implementation Guide: Traefik Reverse Proxy with NextJS, Directus, and Kong
 
 ## Overview
 
-This guide provides step-by-step instructions for setting up Traefik as a reverse proxy with Directus as a backend service. Traefik will serve as the reverse proxy that routes and manages requests to the Directus headless CMS.
+This guide provides step-by-step instructions for setting up Traefik as a reverse proxy with Next.js as the frontend, Directus as the CMS backend, and Kong as the API Gateway. Traefik serves as the central reverse proxy that routes and manages requests to all services.
 
 ## Prerequisites
 
@@ -33,20 +33,22 @@ cd directus
 Create `docker-compose.yml` with the following content:
 
 ```yaml
-version: "3"
+version: '3'
 
 services:
   directus:
     image: directus/directus:latest
-    ports:
-      - "8055:8055"
+    # Not exposing port 8055 to prevent direct access
+    # ports:
+    #   - "8055:8055"
     environment:
-      KEY: "replace-with-random-key"
-      SECRET: "replace-with-random-secret"
-      ADMIN_EMAIL: "admin@example.com"
-      ADMIN_PASSWORD: "password123"
-      DB_CLIENT: "sqlite3"
-      DB_FILENAME: "/directus/database/data.db"
+      KEY: 'replace-with-random-key'
+      SECRET: 'replace-with-random-secret'
+      ADMIN_EMAIL: 'admin@example.com'
+      ADMIN_PASSWORD: 'password123'
+      DB_CLIENT: 'sqlite3'
+      DB_FILENAME: '/directus/database/data.db'
+      PUBLIC_URL: 'http://localhost/dmc'
     volumes:
       - ./database:/directus/database
       - ./uploads:/directus/uploads
@@ -56,47 +58,55 @@ services:
       - traefik_network
     labels:
       - "traefik.enable=true"
-      # Main API route
-      - "traefik.http.routers.directus-api.rule=PathPrefix(`/directus/api`)"
-      - "traefik.http.routers.directus-api.service=directus"
-      - "traefik.http.routers.directus-api.middlewares=directus-stripprefix"
-      - "traefik.http.routers.directus-api.priority=20"
+      # DMC API route
+      - "traefik.http.routers.dmc-api.rule=PathPrefix(`/dmc/api`)"
+      - "traefik.http.routers.dmc-api.service=directus"
+      - "traefik.http.routers.dmc-api.middlewares=dmc-stripprefix"
+      - "traefik.http.routers.dmc-api.priority=20"
       
-      # Admin route with /directus prefix
-      - "traefik.http.routers.directus-admin-prefixed.rule=PathPrefix(`/directus/admin`)"
-      - "traefik.http.routers.directus-admin-prefixed.service=directus"
-      - "traefik.http.routers.directus-admin-prefixed.middlewares=directus-stripprefix"
-      - "traefik.http.routers.directus-admin-prefixed.priority=15"
+      # DMC admin route
+      - "traefik.http.routers.dmc-admin.rule=PathPrefix(`/dmc/admin`)"
+      - "traefik.http.routers.dmc-admin.service=directus"
+      - "traefik.http.routers.dmc-admin.middlewares=dmc-admin-stripprefix"
+      - "traefik.http.routers.dmc-admin.priority=15"
+      - "traefik.http.middlewares.dmc-admin-stripprefix.stripprefix.prefixes=/dmc"
       
-      # Assets route with /directus prefix
-      - "traefik.http.routers.directus-assets-prefixed.rule=PathPrefix(`/directus/admin/assets`)"
-      - "traefik.http.routers.directus-assets-prefixed.service=directus"
-      - "traefik.http.routers.directus-assets-prefixed.middlewares=directus-stripprefix"
-      - "traefik.http.routers.directus-assets-prefixed.priority=25"
+      # DMC base path redirect
+      - "traefik.http.routers.dmc-base.rule=Path(`/dmc`)"
+      - "traefik.http.routers.dmc-base.middlewares=dmc-base-redirect"
+      - "traefik.http.routers.dmc-base.priority=20"
+      - "traefik.http.middlewares.dmc-base-redirect.redirectregex.regex=^/dmc$$"
+      - "traefik.http.middlewares.dmc-base-redirect.redirectregex.replacement=/dmc/admin"
+      - "traefik.http.middlewares.dmc-base-redirect.redirectregex.permanent=true"
       
-      # Main Directus route
-      - "traefik.http.routers.directus.rule=PathPrefix(`/directus`)"
-      - "traefik.http.routers.directus.service=directus"
-      - "traefik.http.services.directus.loadbalancer.server.port=8055"
-      - "traefik.http.middlewares.directus-stripprefix.stripprefix.prefixes=/directus"
-      - "traefik.http.routers.directus.middlewares=directus-stripprefix"
-      - "traefik.http.routers.directus.priority=10"
+      # DMC assets route
+      - "traefik.http.routers.dmc-assets.rule=PathPrefix(`/dmc/admin/assets`)"
+      - "traefik.http.routers.dmc-assets.service=directus"
+      - "traefik.http.routers.dmc-assets.middlewares=dmc-stripprefix"
+      - "traefik.http.routers.dmc-assets.priority=25"
       
-      # DMC routes
+      # Main DMC route
       - "traefik.http.routers.dmc.rule=PathPrefix(`/dmc`)"
       - "traefik.http.routers.dmc.service=directus"
+      - "traefik.http.services.directus.loadbalancer.server.port=8055"
       - "traefik.http.middlewares.dmc-stripprefix.stripprefix.prefixes=/dmc"
       - "traefik.http.routers.dmc.middlewares=dmc-stripprefix"
       - "traefik.http.routers.dmc.priority=10"
       
-      # Direct admin access (for compatibility)
-      - "traefik.http.routers.directus-admin.rule=PathPrefix(`/admin`)"
-      - "traefik.http.routers.directus-admin.service=directus"
+      # Block direct access to admin
+      - "traefik.http.routers.block-admin.rule=PathPrefix(`/admin`)"
+      - "traefik.http.routers.block-admin.service=directus"
+      - "traefik.http.routers.block-admin.middlewares=block-access"
+      - "traefik.http.routers.block-admin.priority=100"
       
-      # Direct assets access (for compatibility)
-      - "traefik.http.routers.directus-assets.rule=PathPrefix(`/admin/assets`)"
-      - "traefik.http.routers.directus-assets.service=directus"
-      - "traefik.http.routers.directus-assets.priority=10"
+      # Block direct access to assets
+      - "traefik.http.routers.block-assets.rule=PathPrefix(`/admin/assets`)"
+      - "traefik.http.routers.block-assets.service=directus"
+      - "traefik.http.routers.block-assets.middlewares=block-access"
+      - "traefik.http.routers.block-assets.priority=100"
+      
+      # Middleware to block direct access using an impossible IP whitelist
+      - "traefik.http.middlewares.block-access.ipwhitelist.sourcerange=255.255.255.255"
 
 networks:
   directus_network:
@@ -111,15 +121,133 @@ networks:
 docker-compose up -d
 ```
 
-### 3. Setting Up Traefik Reverse Proxy
+### 3. Setting Up Kong API Gateway
 
-#### 3.1 Create Traefik Network
+#### 3.1 Create Kong Docker Compose File
+
+Navigate to the kong directory:
+
+```bash
+cd ../kong
+```
+
+Create `docker-compose.yml` with the following content:
+
+```yaml
+version: "3.8"
+
+services:
+  kong-db:
+    image: postgres:16-alpine
+    container_name: kong-db
+    environment:
+      - POSTGRES_USER=kong
+      - POSTGRES_DB=kong
+      - POSTGRES_PASSWORD=kongpass
+    volumes:
+      - kong_data:/var/lib/postgresql/data
+    networks:
+      - traefik_network
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "kong"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  kong-migration:
+    image: kong:latest
+    container_name: kong-migration
+    depends_on:
+      - kong-db
+    environment:
+      - KONG_DATABASE=postgres
+      - KONG_PG_HOST=kong-db
+      - KONG_PG_USER=kong
+      - KONG_PG_PASSWORD=kongpass
+      - KONG_PG_DATABASE=kong
+    command: kong migrations bootstrap
+    networks:
+      - traefik_network
+    restart: on-failure
+
+  kong:
+    image: kong:latest
+    container_name: kong
+    depends_on:
+      kong-db:
+        condition: service_healthy
+      kong-migration:
+        condition: service_completed_successfully
+    environment:
+      - KONG_DATABASE=postgres
+      - KONG_PG_HOST=kong-db
+      - KONG_PG_USER=kong
+      - KONG_PG_PASSWORD=kongpass
+      - KONG_PG_DATABASE=kong
+      - KONG_PROXY_ACCESS_LOG=/dev/stdout
+      - KONG_ADMIN_ACCESS_LOG=/dev/stdout
+      - KONG_PROXY_ERROR_LOG=/dev/stderr
+      - KONG_ADMIN_ERROR_LOG=/dev/stderr
+      - KONG_ADMIN_LISTEN=0.0.0.0:8001, 0.0.0.0:8444 ssl
+      - KONG_ADMIN_GUI_URL=http://localhost:8002/
+      - KONG_ADMIN_GUI_LISTEN=0.0.0.0:8002, 0.0.0.0:8445 ssl
+    ports:
+      - "8000:8000"
+      - "8001:8001"
+      - "8002:8002"
+      - "8443:8443"
+      - "8444:8444"
+    networks:
+      - traefik_network
+    labels:
+      # Traefik integration
+      - "traefik.enable=true"
+
+      # API Gateway route
+      - "traefik.http.routers.apigw.rule=PathPrefix(`/apigw`)"
+      - "traefik.http.routers.apigw.service=kong"
+      - "traefik.http.routers.apigw.middlewares=apigw-stripprefix"
+      - "traefik.http.routers.apigw.priority=10"
+
+      # Service definition
+      - "traefik.http.services.kong.loadbalancer.server.port=8000"
+
+      # Middleware for stripping prefix
+      - "traefik.http.middlewares.apigw-stripprefix.stripprefix.prefixes=/apigw"
+
+      # Kong Manager route
+      - "traefik.http.routers.apigw-manager.rule=PathPrefix(`/apigw/manager`)"
+      - "traefik.http.routers.apigw-manager.service=kong-manager"
+      - "traefik.http.routers.apigw-manager.priority=20"
+
+      # Kong Manager service definition
+      - "traefik.http.services.kong-manager.loadbalancer.server.port=8002"
+
+  # Kong Admin API is available at http://localhost:8001
+
+volumes:
+  kong_data:
+
+networks:
+  traefik_network:
+    external: true
+```
+
+#### 3.2 Start Kong
+
+```bash
+docker-compose up -d
+```
+
+### 4. Setting Up Traefik Reverse Proxy
+
+#### 4.1 Create Traefik Network
 
 ```bash
 docker network create traefik_network
 ```
 
-#### 3.2 Create Traefik Configuration
+#### 4.2 Create Traefik Configuration
 
 Navigate to the Traefik directory:
 
@@ -193,12 +321,247 @@ Create a directory for dynamic configuration:
 mkdir -p config
 ```
 
+### 5. Setting Up NextJS Frontend
+
+#### 5.1 Create NextJS Docker Compose File
+
+Navigate to the frontend directory:
+
+```bash
+cd ../frontend
+```
+
+Create `Dockerfile` with the following content:
+
+```dockerfile
+FROM node:18-alpine
+
+WORKDIR /app
+
+# Copy package.json and package-lock.json
+COPY package*.json ./
+
+# Install dependencies
+RUN npm install
+
+# Copy the rest of the application
+COPY . .
+
+# Build the application
+RUN npm run build
+
+# Expose the port the app runs on
+EXPOSE 3001
+
+# Command to run the application
+CMD ["node", "server.mjs"]
+```
+
+Create `docker-compose.yml` with the following content:
+
+```yaml
+version: '3'
+
+services:
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    networks:
+      - traefik_network
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.frontend.rule=PathPrefix(`/`)"
+      - "traefik.http.routers.frontend.priority=1"
+      - "traefik.http.services.frontend.loadbalancer.server.port=3001"
+
+networks:
+  traefik_network:
+    external: true
+```
+
+Create a `.dockerignore` file with the following content:
+
+```
+node_modules
+.next
+.git
+.github
+.vscode
+.env
+.env.local
+.env.development
+.env.test
+.env.production
+```
+
+Create `next.config.mjs` with the following content:
+
+```javascript
+/** @type {import('next').NextConfig} */
+const nextConfig = {
+  reactStrictMode: true,
+  output: 'export',
+  distDir: 'dist',
+  images: {
+    unoptimized: true
+  }
+};
+
+export default nextConfig;
+```
+
+#### 5.2 Start NextJS Frontend
+
+```bash
+docker-compose up -d --build
+```
+
+### 6. Create Configuration Files
+
 Create `config/directus.yml` with the following content:
 
 ```yaml
 http:
   routers:
     # Main Directus API route
+```
+
+### 7. Creating Setup and Cleanup Scripts
+
+#### 7.1 Create Setup Script
+
+In the root directory, create a `setup_traefik.sh` script with the following content:
+
+```bash
+#!/bin/bash
+
+echo "Setting up Traefik as reverse proxy with NextJS, Directus, and Kong"
+
+# Create Traefik network if it doesn't exist
+if ! docker network ls | grep -q traefik_network; then
+  echo "Creating Traefik network..."
+  docker network create traefik_network
+else
+  echo "Traefik network already exists."
+fi
+
+# Start Traefik
+echo "Starting Traefik..."
+cd traefik
+docker-compose up -d
+cd ..
+
+# Wait for Traefik to be ready
+echo "Waiting for Traefik to initialize..."
+sleep 5
+
+# Start Directus
+echo "Starting Directus..."
+cd directus
+docker-compose up -d
+cd ..
+
+# Start Kong
+echo "Starting Kong API Gateway..."
+cd kong
+docker-compose up -d
+cd ..
+
+# Start Frontend
+echo "Starting NextJS Frontend..."
+cd frontend
+docker-compose up -d --build
+cd ..
+
+echo "Waiting for services to be fully operational..."
+sleep 10
+
+echo "Setup complete! You can now access:"
+echo "- Traefik Dashboard: http://localhost:8080"
+echo "- NextJS Frontend: http://localhost/"
+echo "- Directus via Traefik: http://localhost/dmc"
+echo "- Directus Admin via Traefik: http://localhost/dmc/admin"
+echo "- Kong API Gateway via Traefik: http://localhost/apigw"
+echo "- Kong Admin API (direct): http://localhost:8001"
+echo "- Kong Manager UI: http://localhost:8002"
+```
+
+Make the script executable:
+
+```bash
+chmod +x setup_traefik.sh
+```
+
+#### 7.2 Create Cleanup Script
+
+In the root directory, create a `cleanup_traefik.sh` script with the following content:
+
+```bash
+#!/bin/bash
+
+echo "Cleaning up Traefik, Directus, Kong, and NextJS..."
+
+# Stop and remove Frontend containers
+echo "Stopping Frontend..."
+cd frontend
+docker-compose down
+cd ..
+
+# Stop and remove Kong containers
+echo "Stopping Kong..."
+cd kong
+docker-compose down
+cd ..
+
+# Stop and remove Directus containers
+echo "Stopping Directus..."
+cd directus
+docker-compose down
+cd ..
+
+# Stop and remove Traefik containers
+echo "Stopping Traefik..."
+cd traefik
+docker-compose down
+cd ..
+
+# Ask if user wants to remove the network
+read -p "Do you want to remove the Traefik network? (y/n): " remove_network
+if [ "$remove_network" = "y" ]; then
+  echo "Removing Traefik network..."
+  docker network rm traefik_network
+fi
+
+# Ask if user wants to remove volumes
+read -p "Do you want to remove all data volumes? This will delete all data! (y/n): " remove_volumes
+if [ "$remove_volumes" = "y" ]; then
+  echo "Removing volumes..."
+  docker volume prune -f
+fi
+
+echo "Cleanup complete!"
+```
+
+Make the script executable:
+
+```bash
+chmod +x cleanup_traefik.sh
+```
+
+## Conclusion
+
+You have now set up a complete system with Traefik as a reverse proxy routing to a Next.js frontend, Directus CMS, and Kong API Gateway. This architecture provides a unified entry point for all services while maintaining proper security and routing.
+
+The key features of this setup are:
+
+1. **Centralized Routing**: All requests go through Traefik, which routes them to the appropriate service.
+2. **Path-Based Access**: Each service is accessible through a specific path prefix.
+3. **Security**: Direct access to services is blocked, ensuring all traffic goes through the reverse proxy.
+4. **Scalability**: Additional services can be easily added to the architecture by configuring Traefik.
+
+For production use, consider adding SSL/TLS certificates, implementing more robust authentication, and replacing the placeholder credentials with secure values.
     directus-api:
       rule: "PathPrefix(`/directus/api`)"
       service: "directus"
