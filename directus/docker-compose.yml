@@ -13,6 +13,7 @@ services:
       ADMIN_PASSWORD: 'password123'
       DB_CLIENT: 'sqlite3'
       DB_FILENAME: '/directus/database/data.db'
+      PUBLIC_URL: 'http://localhost/dmc'
     volumes:
       - ./database:/directus/database
       - ./uploads:/directus/uploads
@@ -31,8 +32,9 @@ services:
       # DMC admin route
       - "traefik.http.routers.dmc-admin.rule=PathPrefix(`/dmc/admin`)"
       - "traefik.http.routers.dmc-admin.service=directus"
-      - "traefik.http.routers.dmc-admin.middlewares=dmc-stripprefix"
+      - "traefik.http.routers.dmc-admin.middlewares=dmc-admin-stripprefix"
       - "traefik.http.routers.dmc-admin.priority=15"
+      - "traefik.http.middlewares.dmc-admin-stripprefix.stripprefix.prefixes=/dmc"
       
       # DMC base path redirect
       - "traefik.http.routers.dmc-base.rule=Path(`/dmc`)"
