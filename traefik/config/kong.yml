@@ -1,0 +1,63 @@
+http:
+  routers:
+    # Kong API Gateway route
+    apigw:
+      rule: "PathPrefix(`/apigw`) && !PathPrefix(`/apigw/manager`) && !PathPrefix(`/apigw/admin`)"
+      service: "kong"
+      middlewares:
+        - "apigw-stripprefix"
+      priority: 10
+    
+    # Kong Manager route
+    apigw-manager:
+      rule: "PathPrefix(`/apigw/manager`)"
+      service: "kong-manager"
+      middlewares:
+        - "apigw-manager-redirect"
+      priority: 20
+
+    # Kong Admin API route
+    apigw-admin:
+      rule: "PathPrefix(`/apigw/admin`)"
+      service: "kong-admin"
+      middlewares:
+        - "apigw-admin-stripprefix"
+      priority: 30
+
+  services:
+    kong:
+      loadBalancer:
+        servers:
+          - url: "http://kong:8000"
+    
+    kong-manager:
+      loadBalancer:
+        servers:
+          - url: "http://traefik/kong-manager-redirect.html"
+
+    kong-admin:
+      loadBalancer:
+        servers:
+          - url: "http://kong:8001"
+
+  middlewares:
+    apigw-stripprefix:
+      stripPrefix:
+        prefixes:
+          - "/apigw"
+    
+    apigw-admin-stripprefix:
+      stripPrefix:
+        prefixes:
+          - "/apigw/admin"
+    
+    apigw-manager-stripprefix:
+      stripPrefix:
+        prefixes:
+          - "/apigw/manager"
+    
+    apigw-manager-redirect:
+      redirectRegex:
+        regex: "^/apigw/manager(.*)"
+        replacement: "http://localhost:8002$${1}"
+        permanent: true

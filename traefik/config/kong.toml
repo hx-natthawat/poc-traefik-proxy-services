@@ -1,0 +1,41 @@
+# Kong API Gateway configuration
+
+[http.routers.apigw]
+rule = "PathPrefix(`/apigw`) && !PathPrefix(`/apigw/manager`) && !PathPrefix(`/apigw/admin`)"
+service = "kong"
+middlewares = ["apigw-stripprefix"]
+priority = 10
+
+[http.routers.apigw-manager]
+rule = "PathPrefix(`/apigw/manager`)"
+service = "kong-manager"
+middlewares = ["apigw-manager-stripprefix"]
+priority = 20
+
+[http.routers.apigw-admin]
+rule = "PathPrefix(`/apigw/admin`)"
+service = "kong-admin"
+middlewares = ["apigw-admin-stripprefix"]
+priority = 30
+
+[http.services.kong.loadBalancer]
+  [[http.services.kong.loadBalancer.servers]]
+  url = "http://kong:8000"
+
+[http.services.kong-manager.loadBalancer]
+  [[http.services.kong-manager.loadBalancer.servers]]
+  url = "http://kong:8002/"
+
+[http.services.kong-admin.loadBalancer]
+  [[http.services.kong-admin.loadBalancer.servers]]
+  url = "http://kong:8001"
+
+[http.middlewares.apigw-stripprefix.stripPrefix]
+prefixes = ["/apigw"]
+
+[http.middlewares.apigw-admin-stripprefix.stripPrefix]
+prefixes = ["/apigw/admin"]
+
+[http.middlewares.apigw-manager-stripprefix.stripPrefix]
+prefixes = ["/apigw/manager"]
+

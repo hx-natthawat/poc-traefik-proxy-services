@@ -1,0 +1,79 @@
+http:
+  routers:
+    # DMC API route
+    dmc-api:
+      rule: "PathPrefix(`/dmc/api`)"
+      service: "directus"
+      middlewares:
+        - "dmc-stripprefix"
+      priority: 20
+
+    # DMC admin route
+    dmc-admin:
+      rule: "PathPrefix(`/dmc/admin`)"
+      service: "directus"
+      middlewares:
+        - "dmc-stripprefix"
+      priority: 15
+
+    # DMC assets route
+    dmc-assets:
+      rule: "PathPrefix(`/dmc/admin/assets`)"
+      service: "directus"
+      middlewares:
+        - "dmc-stripprefix"
+      priority: 25
+
+    # Main DMC route - redirects /dmc to /dmc/admin
+    dmc-root:
+      rule: "Path(`/dmc`)"
+      service: "directus"
+      middlewares:
+        - "dmc-root-redirect"
+      priority: 20
+
+    # DMC catch-all route
+    dmc-catchall:
+      rule: "PathPrefix(`/dmc`)"
+      service: "directus"
+      middlewares:
+        - "dmc-stripprefix"
+      priority: 5
+
+    # Block direct access to admin
+    block-admin:
+      rule: "PathPrefix(`/admin`)"
+      service: "directus"
+      middlewares:
+        - "block-access"
+      priority: 100
+
+    # Block direct access to assets
+    block-assets:
+      rule: "PathPrefix(`/admin/assets`)"
+      service: "directus"
+      middlewares:
+        - "block-access"
+      priority: 100
+
+  middlewares:
+    dmc-stripprefix:
+      stripPrefix:
+        prefixes:
+          - "/dmc"
+    dmc-root-redirect:
+      redirectregex:
+        regex: "^/dmc$"
+        replacement: "/dmc/admin"
+        permanent: true
+    block-access:
+      ipWhiteList:
+        sourceRange:
+          - "255.255.255.255"  # An impossible IP that will effectively block all access
+
+  services:
+    directus:
+      loadBalancer:
+        servers:
+          - url: "http://directus:8055"
+

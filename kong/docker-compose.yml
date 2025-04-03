@@ -1,0 +1,97 @@
+version: "3.8"
+
+services:
+  kong-db:
+    image: postgres:16-alpine
+    container_name: kong-db
+    environment:
+      - POSTGRES_USER=kong
+      - POSTGRES_DB=kong
+      - POSTGRES_PASSWORD=kongpass
+    volumes:
+      - kong_data:/var/lib/postgresql/data
+    networks:
+      - traefik_network
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "kong"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  kong-migration:
+    image: kong:latest
+    container_name: kong-migration
+    depends_on:
+      - kong-db
+    environment:
+      - KONG_DATABASE=postgres
+      - KONG_PG_HOST=kong-db
+      - KONG_PG_USER=kong
+      - KONG_PG_PASSWORD=kongpass
+      - KONG_PG_DATABASE=kong
+    command: kong migrations bootstrap
+    networks:
+      - traefik_network
+    restart: on-failure
+
+  kong:
+    image: kong:latest
+    container_name: kong
+    depends_on:
+      kong-db:
+        condition: service_healthy
+      kong-migration:
+        condition: service_completed_successfully
+    environment:
+      - KONG_DATABASE=postgres
+      - KONG_PG_HOST=kong-db
+      - KONG_PG_USER=kong
+      - KONG_PG_PASSWORD=kongpass
+      - KONG_PG_DATABASE=kong
+      - KONG_PROXY_ACCESS_LOG=/dev/stdout
+      - KONG_ADMIN_ACCESS_LOG=/dev/stdout
+      - KONG_PROXY_ERROR_LOG=/dev/stderr
+      - KONG_ADMIN_ERROR_LOG=/dev/stderr
+      - KONG_ADMIN_LISTEN=0.0.0.0:8001, 0.0.0.0:8444 ssl
+      - KONG_ADMIN_GUI_URL=http://localhost:8002/
+      - KONG_ADMIN_GUI_LISTEN=0.0.0.0:8002, 0.0.0.0:8445 ssl
+    ports:
+      - "8000:8000"
+      - "8001:8001"
+      - "8002:8002"
+      - "8443:8443"
+      - "8444:8444"
+    networks:
+      - traefik_network
+    labels:
+      # Traefik integration
+      - "traefik.enable=true"
+
+      # API Gateway route
+      - "traefik.http.routers.apigw.rule=PathPrefix(`/apigw`)"
+      - "traefik.http.routers.apigw.service=kong"
+      - "traefik.http.routers.apigw.middlewares=apigw-stripprefix"
+      - "traefik.http.routers.apigw.priority=10"
+
+      # Service definition
+      - "traefik.http.services.kong.loadbalancer.server.port=8000"
+
+      # Middleware for stripping prefix
+      - "traefik.http.middlewares.apigw-stripprefix.stripprefix.prefixes=/apigw"
+
+      # Kong Manager route
+      - "traefik.http.routers.apigw-manager.rule=PathPrefix(`/apigw/manager`)"
+      - "traefik.http.routers.apigw-manager.service=kong-manager"
+      - "traefik.http.routers.apigw-manager.priority=20"
+
+      # Kong Manager service definition
+      - "traefik.http.services.kong-manager.loadbalancer.server.port=8002"
+
+  # Kong Admin API is available at http://localhost:8001
+
+volumes:
+  kong_data:
+
+networks:
+  traefik_network:
+    external: true

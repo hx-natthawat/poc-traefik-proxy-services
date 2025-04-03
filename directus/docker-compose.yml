@@ -1,0 +1,78 @@
+version: '3'
+
+services:
+  directus:
+    image: directus/directus:latest
+    # Not exposing port 8055 to prevent direct access
+    # ports:
+    #   - "8055:8055"
+    environment:
+      KEY: 'replace-with-random-key'
+      SECRET: 'replace-with-random-secret'
+      ADMIN_EMAIL: 'admin@example.com'
+      ADMIN_PASSWORD: 'password123'
+      DB_CLIENT: 'sqlite3'
+      DB_FILENAME: '/directus/database/data.db'
+    volumes:
+      - ./database:/directus/database
+      - ./uploads:/directus/uploads
+    restart: unless-stopped
+    networks:
+      - directus_network
+      - traefik_network
+    labels:
+      - "traefik.enable=true"
+      # DMC API route
+      - "traefik.http.routers.dmc-api.rule=PathPrefix(`/dmc/api`)"
+      - "traefik.http.routers.dmc-api.service=directus"
+      - "traefik.http.routers.dmc-api.middlewares=dmc-stripprefix"
+      - "traefik.http.routers.dmc-api.priority=20"
+      
+      # DMC admin route
+      - "traefik.http.routers.dmc-admin.rule=PathPrefix(`/dmc/admin`)"
+      - "traefik.http.routers.dmc-admin.service=directus"
+      - "traefik.http.routers.dmc-admin.middlewares=dmc-stripprefix"
+      - "traefik.http.routers.dmc-admin.priority=15"
+      
+      # DMC base path redirect
+      - "traefik.http.routers.dmc-base.rule=Path(`/dmc`)"
+      - "traefik.http.routers.dmc-base.middlewares=dmc-base-redirect"
+      - "traefik.http.routers.dmc-base.priority=20"
+      - "traefik.http.middlewares.dmc-base-redirect.redirectregex.regex=^/dmc$$"
+      - "traefik.http.middlewares.dmc-base-redirect.redirectregex.replacement=/dmc/admin"
+      - "traefik.http.middlewares.dmc-base-redirect.redirectregex.permanent=true"
+      
+      # DMC assets route
+      - "traefik.http.routers.dmc-assets.rule=PathPrefix(`/dmc/admin/assets`)"
+      - "traefik.http.routers.dmc-assets.service=directus"
+      - "traefik.http.routers.dmc-assets.middlewares=dmc-stripprefix"
+      - "traefik.http.routers.dmc-assets.priority=25"
+      
+      # Main DMC route
+      - "traefik.http.routers.dmc.rule=PathPrefix(`/dmc`)"
+      - "traefik.http.routers.dmc.service=directus"
+      - "traefik.http.services.directus.loadbalancer.server.port=8055"
+      - "traefik.http.middlewares.dmc-stripprefix.stripprefix.prefixes=/dmc"
+      - "traefik.http.routers.dmc.middlewares=dmc-stripprefix"
+      - "traefik.http.routers.dmc.priority=10"
+      
+      # Block direct access to admin
+      - "traefik.http.routers.block-admin.rule=PathPrefix(`/admin`)"
+      - "traefik.http.routers.block-admin.service=directus"
+      - "traefik.http.routers.block-admin.middlewares=block-access"
+      - "traefik.http.routers.block-admin.priority=100"
+      
+      # Block direct access to assets
+      - "traefik.http.routers.block-assets.rule=PathPrefix(`/admin/assets`)"
+      - "traefik.http.routers.block-assets.service=directus"
+      - "traefik.http.routers.block-assets.middlewares=block-access"
+      - "traefik.http.routers.block-assets.priority=100"
+      
+      # Middleware to block direct access using an impossible IP whitelist
+      - "traefik.http.middlewares.block-access.ipwhitelist.sourcerange=255.255.255.255"
+
+networks:
+  directus_network:
+    driver: bridge
+  traefik_network:
+    external: true

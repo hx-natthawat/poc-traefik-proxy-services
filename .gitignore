@@ -1,0 +1,56 @@
+# Docker volumes and data
+kong/kong-database-data/
+directus/database/
+directus/uploads/
+
+# Environment variables
+.env
+*.env
+
+# Logs
+*.log
+logs/
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Editor directories and files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Node modules (if you add any Node.js scripts)
+node_modules/
+
+# Temporary files
+*.tmp
+*.bak
+*.backup
+temp/
+tmp/
+
+# SSL certificates (if you add any for development)
+*.pem
+*.key
+*.crt
+*.cer
+
+# Backup files
+*.bak
+*.backup
+
+# Dependency directories
+vendor/
+
+# Local configuration files that might contain sensitive information
+*.local.yml
+*.local.yaml
+*.local.json

@@ -1,0 +1,13 @@
+http:
+  routers:
+    # Frontend route
+    frontend:
+      rule: "PathPrefix(`/`)"
+      service: "frontend"
+      priority: 1
+
+  services:
+    frontend:
+      loadBalancer:
+        servers:
+          - url: "http://frontend:3000"
